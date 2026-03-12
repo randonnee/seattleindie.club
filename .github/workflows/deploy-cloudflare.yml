@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: out/images
-          key: movie-images-cache
+          key: cf-movie-images-cache
 
       - name: Generate site
         run: bun run generate:prod
@@ -50,7 +50,7 @@ jobs:
 
       - name: Delete old image caches
         run: |
-          gh cache list --key movie-images-cache --json id -q '.[].id' | while read id; do
+          gh cache list --key cf-movie-images-cache --json id -q '.[].id' | while read id; do
             gh cache delete "$id" || true
           done
         env:
@@ -60,7 +60,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: out/images
-          key: movie-images-cache
+          key: cf-movie-images-cache
 
   deploy_pages:
     name: Deploy to Cloudflare Pages
@@ -78,11 +78,9 @@ jobs:
 
       - name: Publish to Cloudflare Pages
         id: deploy
-        uses: cloudflare/pages-action@v1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: ${{ secrets.CLOUDFLARE_PROJECT }}
-          directory: out
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy out/ --project-name=${{ secrets.CLOUDFLARE_PROJECT }}
 
