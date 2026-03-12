@@ -17,9 +17,10 @@ import {
   generateStructuredData
 } from "./html_generators"
 import { cleanupUnusedImages } from "../scrapers/network/scrape-client"
+import { MOCK_HTML_DIR, MOCK_IMAGES_DIR } from "../scrapers/mocks/mock-utils"
 import { NOW_PLAYING_DAYS } from "../config"
 import { RUN_MODE } from "../scrapers/config/run-mode"
-import { readdir, copyFile } from "node:fs/promises"
+import { readdir, copyFile, rm, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 
 const TEMPLATE_PATH = "./generator/template.html"
@@ -69,6 +70,14 @@ async function generateSite(showtimes: Showtime[]): Promise<void> {
 
 const CONFIG_PATH = "./config.json"
 
+async function clearMockData(): Promise<void> {
+  for (const dir of [MOCK_HTML_DIR, MOCK_IMAGES_DIR]) {
+    await rm(dir, { recursive: true, force: true })
+    await mkdir(dir, { recursive: true })
+  }
+  console.log("Cleared old mock data")
+}
+
 async function updateMockDate(): Promise<void> {
   const config = await Bun.file(CONFIG_PATH).json()
   const now = new Date()
@@ -104,6 +113,11 @@ async function copyStaticAssets(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // Clear old mock data before fetching new mocks
+  if (RUN_MODE === "update_mocks") {
+    await clearMockData()
+  }
+
   const requestedTheaters = parseTheatersArg()
 
   const scrapers = requestedTheaters
