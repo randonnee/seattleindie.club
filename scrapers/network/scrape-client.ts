@@ -24,7 +24,7 @@ export function getScrapeClient(): ScrapeClient {
 
 export class ScrapeClientImpl implements ScrapeClient {
   private static readonly DEFAULT_DELAY_MS = 1000;
-  private static readonly USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  private static readonly USER_AGENT = "SeattleIndieClub/1.0 (+https://seattleindie.club)";
 
   private lastRequestTime = 0;
   private readonly delayMs: number;
