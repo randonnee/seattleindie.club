@@ -276,6 +276,15 @@ main {
   justify-content: space-between;
 }
 
+.showtime-date {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.showtime-times {
+  text-align: right;
+}
+
 .movie-card {
   text-align: center;
   background: var(--surface);
