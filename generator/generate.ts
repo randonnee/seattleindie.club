@@ -18,6 +18,7 @@ import {
 } from "./html_generators"
 import { cleanupUnusedImages } from "../scrapers/network/scrape-client"
 import { NOW_PLAYING_DAYS } from "../config"
+import { RUN_MODE } from "../scrapers/config/run-mode"
 import { readdir, copyFile } from "node:fs/promises"
 import { join } from "node:path"
 
@@ -64,6 +65,19 @@ async function generateSite(showtimes: Showtime[]): Promise<void> {
   generateStructuredData($, sortedShowtimes)
 
   await Bun.write(OUTPUT_PATH, $.html())
+}
+
+const CONFIG_PATH = "./config.json"
+
+async function updateMockDate(): Promise<void> {
+  const config = await Bun.file(CONFIG_PATH).json()
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  config.mockDate = `${year}-${month}-${day}T12:00:00`
+  await Bun.write(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n")
+  console.log(`Updated mockDate to ${config.mockDate}`)
 }
 
 async function generateSitemap(): Promise<void> {
@@ -121,6 +135,11 @@ async function main(): Promise<void> {
 
   // Clean up unused images from the cache
   await cleanupUnusedImages()
+
+  // Update mockDate in config.json so mock mode uses the new mocks
+  if (RUN_MODE === "update_mocks") {
+    await updateMockDate()
+  }
 }
 
 main()
