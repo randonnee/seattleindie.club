@@ -1,4 +1,3 @@
-import type * as cheerio from 'cheerio'
 import type { Showtime } from "../scrapers/models/showtime"
 import type { Theater } from "../scrapers/models/theater"
 import { ALL_THEATERS } from "../scrapers/theaters/theaters"
@@ -11,7 +10,10 @@ import {
   type MovieGroup
 } from "./showtime_utils"
 
-// HTML generation functions for the site
+// HTML generation functions for the site.
+// All functions return HTML strings; no Cheerio dependency.
+
+// --- Theater Filters (calendar view) ---
 
 export function generateTheaterFiltersHtml(): string {
   return `
@@ -22,9 +24,7 @@ export function generateTheaterFiltersHtml(): string {
   `
 }
 
-export function generateTheaterFilters($: cheerio.CheerioAPI): void {
-  $(".theater-filters").html(generateTheaterFiltersHtml())
-}
+// --- Calendar View ---
 
 function generateMovieItemHtml(
   movie: Showtime['movie'],
@@ -36,7 +36,7 @@ function generateMovieItemHtml(
   return `
     <li class="movie-item" data-theater-id="${theaterId}">
       <div class="movie-title"><a href="${movie.url}" target="_blank" rel="noopener noreferrer">${movie.title}</a></div>
-      <div class="movie-times"><a href="${theater.url}" target="_blank" rel="noopener noreferrer">${theater.name}</a> @ ${timesStr}</div>
+      <div class="movie-times"><a href="/theaters/${theaterId}/">${theater.name}</a> @ ${timesStr}</div>
     </li>
   `
 }
@@ -52,19 +52,21 @@ function generateDayItemHtml(dayKey: string, movieItemsHtml: string): string {
   `
 }
 
-export function generateCalendar($: cheerio.CheerioAPI, showtimesByDay: ShowtimesByDate): void {
-  const dayGrid = $("#day-grid")
-
-  Object.entries(showtimesByDay).forEach(([dayKey, dayShowtimes]) => {
+export function generateCalendarHtml(showtimesByDay: ShowtimesByDate): string {
+  const dayItems = Object.entries(showtimesByDay).map(([dayKey, dayShowtimes]) => {
     const movieTheaterGroups = groupDayShowtimesByMovieTheater(dayShowtimes)
 
     const movieItemsHtml = Object.values(movieTheaterGroups)
       .map(group => generateMovieItemHtml(group.movie, group.theater, group.times))
       .join('')
 
-    dayGrid.append(generateDayItemHtml(dayKey, movieItemsHtml))
+    return generateDayItemHtml(dayKey, movieItemsHtml)
   })
+
+  return dayItems.join('')
 }
+
+// --- Movie Grid (Now Playing view) ---
 
 function generateShowtimeDatesHtml(showtimes: Showtime[]): string {
   const showtimesByDate: Record<string, string[]> = {}
@@ -101,7 +103,7 @@ function generateTheaterShowtimesHtml(
   const dateTimesHtml = generateShowtimeDatesHtml(showtimes)
   return `
     <div class="theater-showtimes">
-      <div class="theater-name"><a href="${theater.url}" target="_blank" rel="noopener noreferrer">${theater.name}</a></div>
+      <div class="theater-name"><a href="/theaters/${theater.id}/">${theater.name}</a></div>
       <div class="showtime-dates">${dateTimesHtml}</div>
     </div>
   `
@@ -130,7 +132,7 @@ function generateMovieCardHtml(movieGroup: MovieGroup): string {
     .join('')
 
   const movieImageHtml = movie.imageUrl
-    ? `<img class="movie-poster" src="images/${outImageFilename(movie.imageUrl)}" alt="${movie.title}">`
+    ? `<img class="movie-poster" src="/images/${outImageFilename(movie.imageUrl)}" alt="${movie.title}">`
     : ''
 
   const movieMetaHtml = generateMovieMetaHtml(movie)
@@ -151,17 +153,17 @@ function generateMovieCardHtml(movieGroup: MovieGroup): string {
   `
 }
 
-export function generateMovieGrid(
-  $: cheerio.CheerioAPI,
+export function generateMovieGridHtml(
   showtimesByMovieAndTheater: ShowtimesByMovieTheater
-): void {
-  const movieGrid = $("#movie-grid")
+): string {
   const movieGroups = groupShowtimesByMovie(showtimesByMovieAndTheater)
 
-  Object.values(movieGroups).forEach(movieGroup => {
-    movieGrid.append(generateMovieCardHtml(movieGroup))
-  })
+  return Object.values(movieGroups)
+    .map(movieGroup => generateMovieCardHtml(movieGroup))
+    .join('')
 }
+
+// --- About View ---
 
 function generateTheaterAboutCardHtml(theater: typeof ALL_THEATERS[number]): string {
   const addressHtml = theater.addressLink
@@ -170,27 +172,24 @@ function generateTheaterAboutCardHtml(theater: typeof ALL_THEATERS[number]): str
 
   return `
     <div class="theater-about-card">
-      <h3 class="theater-about-name"><a href="${theater.url}" target="_blank" rel="noopener noreferrer">${theater.name}</a></h3>
+      <h3 class="theater-about-name"><a href="/theaters/${theater.id}/">${theater.name}</a></h3>
       <div class="theater-about-address">${addressHtml}</div>
       <blockquote class="theater-about-description">"${theater.about}"</blockquote>
     </div>
   `
 }
 
-export function generateTheatersAbout($: cheerio.CheerioAPI): void {
-  const theatersAbout = $("#theaters-about")
-  ALL_THEATERS.forEach(theater => {
-    theatersAbout.append(generateTheaterAboutCardHtml(theater))
-  })
+export function generateTheatersAboutHtml(): string {
+  return ALL_THEATERS.map(theater => generateTheaterAboutCardHtml(theater)).join('')
 }
 
-// Structured data (JSON-LD) generation for SEO
+// --- Structured Data (JSON-LD) ---
 
 function theaterToJsonLd(theater: Theater): object {
   const jsonLd: Record<string, unknown> = {
     "@type": "MovieTheater",
     "name": theater.name,
-    "url": theater.url,
+    "url": `https://seattleindie.club/theaters/${theater.id}/`,
     "description": theater.about
   }
   if (theater.address && theater.address !== "Searching for a new home") {
@@ -230,15 +229,10 @@ function showtimeToScreeningEvent(showtime: Showtime): object {
   return event
 }
 
-export function generateStructuredData(
-  $: cheerio.CheerioAPI,
-  showtimes: Showtime[]
-): void {
-  // Build the combined JSON-LD with WebSite + MovieTheaters + ScreeningEvents
+/** Build JSON-LD for the homepage (WebSite + all theaters + up to 50 screening events). */
+export function buildHomepageJsonLd(showtimes: Showtime[]): object {
   const theatersJsonLd = ALL_THEATERS.map(theaterToJsonLd)
 
-  // Limit screening events to avoid excessive JSON-LD size
-  // Group by unique movie+theater+date to deduplicate
   const seen = new Set<string>()
   const screeningEvents: object[] = []
   for (const showtime of showtimes) {
@@ -248,11 +242,10 @@ export function generateStructuredData(
       seen.add(key)
       screeningEvents.push(showtimeToScreeningEvent(showtime))
     }
-    // Cap at 50 events to keep the page size reasonable
     if (screeningEvents.length >= 50) break
   }
 
-  const structuredData = {
+  return {
     "@context": "https://schema.org",
     "@graph": [
       {
@@ -265,7 +258,75 @@ export function generateStructuredData(
       ...screeningEvents
     ]
   }
+}
 
-  // Replace the existing JSON-LD script tag
-  $('script[type="application/ld+json"]').html(JSON.stringify(structuredData, null, 2))
+/** Build JSON-LD for a theater-specific page. */
+export function buildTheaterPageJsonLd(theater: Theater, showtimes: Showtime[]): object {
+  const theaterJsonLd = theaterToJsonLd(theater)
+
+  const seen = new Set<string>()
+  const screeningEvents: object[] = []
+  for (const showtime of showtimes) {
+    const dateStr = showtime.datetime.toISOString().split('T')[0]
+    const key = `${showtime.movie.title}~${dateStr}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      screeningEvents.push(showtimeToScreeningEvent(showtime))
+    }
+    if (screeningEvents.length >= 30) break
+  }
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      theaterJsonLd,
+      ...screeningEvents
+    ]
+  }
+}
+
+/** Build JSON-LD for the calendar page. */
+export function buildCalendarPageJsonLd(showtimes: Showtime[]): object {
+  const seen = new Set<string>()
+  const screeningEvents: object[] = []
+  for (const showtime of showtimes) {
+    const dateStr = showtime.datetime.toISOString().split('T')[0]
+    const key = `${showtime.movie.title}~${showtime.theater.id}~${dateStr}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      screeningEvents.push(showtimeToScreeningEvent(showtime))
+    }
+    if (screeningEvents.length >= 50) break
+  }
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "name": "Seattle Indie Film Calendar",
+        "url": "https://seattleindie.club/calendar/",
+        "description": "Day-by-day showtime calendar for Seattle's independent movie theaters"
+      },
+      ...screeningEvents
+    ]
+  }
+}
+
+/** Build JSON-LD for the about page. */
+export function buildAboutPageJsonLd(): object {
+  const theatersJsonLd = ALL_THEATERS.map(theaterToJsonLd)
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "name": "About Seattle's Independent Theaters",
+        "url": "https://seattleindie.club/about/",
+        "description": "Information about Seattle's independent movie theaters"
+      },
+      ...theatersJsonLd
+    ]
+  }
 }
