@@ -10,6 +10,7 @@ permissions:
   contents: read
   deployments: write
   id-token: write
+  actions: write
 
 concurrency:
   group: cloudflare-pages
@@ -35,9 +36,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: out/images
-          key: cf-movie-images-${{ github.run_id }}
-          restore-keys: |
-            cf-movie-images-
+          key: cf-movie-images
 
       - name: Generate site
         run: bun run generate:prod
@@ -49,11 +48,19 @@ jobs:
           path: out
           retention-days: 1
 
+      - name: Delete old image cache
+        run: |
+          gh cache list --key cf-movie-images --json id -q '.[].id' | while read id; do
+            gh cache delete "$id" || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Save image cache
         uses: actions/cache/save@v4
         with:
           path: out/images
-          key: cf-movie-images-${{ github.run_id }}
+          key: cf-movie-images
 
   deploy_pages:
     name: Deploy to Cloudflare Pages
