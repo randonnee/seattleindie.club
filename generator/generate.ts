@@ -22,6 +22,7 @@ import { NOW_PLAYING_DAYS } from "../config"
 import { RUN_MODE } from "../scrapers/config/run-mode"
 import { readdir, copyFile, rm, mkdir } from "node:fs/promises"
 import { join } from "node:path"
+import { createHash } from "node:crypto"
 
 const TEMPLATE_PATH = "./generator/template.html"
 const OUTPUT_PATH = "./out/index.html"
@@ -40,9 +41,18 @@ function parseTheatersArg(): string[] | null {
   return theatersValue.split(",").map(t => t.trim().toLowerCase())
 }
 
+async function hashFile(path: string): Promise<string> {
+  const content = await Bun.file(path).arrayBuffer()
+  return createHash("sha256").update(Buffer.from(content)).digest("hex").slice(0, 10)
+}
+
 async function generateSite(showtimes: Showtime[]): Promise<void> {
   const template = await Bun.file(TEMPLATE_PATH).text()
   const $ = cheerio.load(template)
+
+  // Cache-bust CSS by appending a content hash as a query parameter
+  const cssHash = await hashFile(join(STATIC_DIR, "style.css"))
+  $('link[rel="stylesheet"][href="style.css"]').attr("href", `style.css?v=${cssHash}`)
 
   const sortedShowtimes = sortShowtimesChronologically(showtimes)
 
