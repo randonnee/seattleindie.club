@@ -1,139 +1,208 @@
 # AGENTS.md
 
-This file contains guidelines and commands for agentic coding agents working in this repository.
+Guidelines for agentic coding agents working in this repository.
 
 ## Project Overview
 
-This is a TypeScript/Bun project for scraping movie theater showtimes. The project uses:
-- **Runtime**: Bun (JavaScript runtime and package manager)
-- **Language**: TypeScript with strict type checking
-- **Dependencies**: Cheerio for HTML parsing, Effect for functional programming
-- **Architecture**: Interface-based scraper system with pluggable theater implementations
+**misogi** is a static site generator that scrapes showtimes from independent movie theaters in Seattle and produces a single-page website deployed to **https://seattleindie.club/**. All scraping happens at build time; the output is a static `out/` directory served via Cloudflare Pages (and GitHub Pages as a secondary target).
+
+- **Runtime**: Bun (not Node.js)
+- **Language**: TypeScript with strict mode
+- **Key dependencies**: Cheerio (HTML parsing), Effect (typed error handling), sharp (image processing)
+- **Architecture**: Build-time scraper pipeline -> static HTML generator -> deployment
+
+## Directory Structure
+
+```
+misogi/
+├── config.json / config.ts       # Runtime config (nowPlayingDays, mockDate)
+├── index.ts                      # Local dev server (serves out/ as static files)
+├── deploy.sh                     # Local deploy script (generate + wrangler)
+├── generator/
+│   ├── generate.ts               # Main entry point for site generation
+│   ├── html_generators.ts        # HTML generation (calendar, movie grid, about, JSON-LD)
+│   ├── scraper_registry.ts       # Maps theater IDs -> scraper instances
+│   ├── showtime_utils.ts         # Grouping, filtering, sorting utilities
+│   └── template.html             # HTML skeleton for the output page
+├── scrapers/
+│   ├── models/                   # Domain interfaces (Movie, Theater, Showtime, TheaterScraper)
+│   ├── theaters/theaters.ts      # Theater constant definitions (all 7 venues)
+│   ├── theater_scrapers/         # Scraper implementations per theater
+│   │   ├── base_scraper.ts       # Abstract base with shared scraping pipeline
+│   │   ├── beacon_scraper.ts     # The Beacon
+│   │   ├── siff_scraper.ts       # SIFF (3 venues)
+│   │   ├── nwff_scraper.ts       # NW Film Forum
+│   │   ├── grand_illusion_scraper.ts  # Grand Illusion Cinema
+│   │   └── central_cinema_scraper.ts  # Central Cinema (exists but NOT registered)
+│   ├── network/
+│   │   ├── scrape-client.ts      # ScrapeClient interface, real impl, factory
+│   │   ├── image-processor.ts    # Resize to 600px wide WebP via sharp
+│   │   └── image-cache.ts        # Tracks used images, cleans up stale ones
+│   ├── mocks/
+│   │   ├── html/                 # ~100+ saved HTML responses from real sites
+│   │   ├── mock-scrape-client.ts # Mock HTTP client (reads from local files)
+│   │   └── mock-utils.ts         # URL-to-filename mapping
+│   ├── config/run-mode.ts        # RUN_MODE env var (mock | prod | update_mocks)
+│   └── utils/date-manager.ts     # Date utilities (mock-aware "now", date parsing)
+├── static/                       # Client-side assets (CSS, JS, favicon, CNAME, etc.)
+├── out/                          # Generated output (gitignored)
+└── .github/workflows/            # CI/CD (daily cron, deploys to GH Pages + Cloudflare)
+```
 
 ## Build & Development Commands
 
-### Package Management
 ```bash
-bun install          # Install dependencies
-bun add <package>    # Add a new dependency
-bun add <package> -d # Add a dev dependency
+# Package management
+bun install                    # Install dependencies
+
+# Site generation
+bun run generate               # Generate site in MOCK mode (reads local HTML files)
+bun run generate:prod          # Generate site in PROD mode (fetches live websites)
+bun run generate:update-mocks  # Fetch live sites AND save responses to scrapers/mocks/html/
+
+# Local dev server
+bun run start                  # Serve out/ on localhost for previewing
+
+# Type checking
+bun tsc --noEmit               # Run TypeScript compiler without emitting
+
+# Testing
+bun test                       # Run tests (bun:test framework)
+
+# Deployment
+bun run deploy                 # Generate prod + deploy to Cloudflare Pages
 ```
 
-### Running the Application
-```bash
-bun run index.ts     # Run the main application
-bun index.ts         # Alternative way to run
+## How the System Works
+
+### Data Flow
+
+1. **`generator/generate.ts`** is the entry point (run via `bun run generate`)
+2. Parses optional `--theaters beacon,siff` CLI arg to run specific scrapers
+3. Gets scraper instances from `generator/scraper_registry.ts`
+4. Runs all scrapers **in parallel** via `Effect.all(..., { mode: "either" })` (failures don't abort other scrapers)
+5. Collects all `Showtime[]` results, filters out failed scrapers
+6. Passes showtimes to `generateSite()` which:
+   - Loads `generator/template.html` with Cheerio
+   - Generates theater filter buttons, calendar view, now-playing movie grid, about section, and JSON-LD structured data
+   - Writes final HTML to `out/index.html`
+7. Copies static assets from `static/` to `out/`
+8. Generates `out/sitemap.xml`
+9. Cleans up unused images in `out/images/`
+
+### Scraper Pipeline (BaseScraper)
+
+Most scrapers extend `BaseScraper<TContext>` which provides a standard pipeline:
+
+1. `getCalendarPages()` -> list of URLs to scrape (with optional context per page)
+2. For each page: fetch HTML, parse with Cheerio, find events via `getEventSelector()`, call `parseEvent()` on each
+3. Flatten results, run `filterShowtimes()` hook
+4. For movies in the "now playing" window (next 7 days): fetch each movie's detail page to extract poster images (with URL deduplication)
+5. Return `Showtime[]`
+
+**Subclasses must implement**: `getCalendarPages()`, `getEventSelector()`, `parseEvent()`
+**Overridable hooks**: `extractImageUrl()`, `filterShowtimes()`
+
+### Three Run Modes
+
+Controlled by `RUN_MODE` env var (default: `mock`):
+- **`mock`**: Reads HTML from `scrapers/mocks/html/` files. Uses fixed `MOCK_DATE` from config for deterministic results.
+- **`prod`**: Fetches live websites via HTTP. Uses real current date.
+- **`update_mocks`**: Fetches live websites AND saves responses to `scrapers/mocks/html/` for future mock runs.
+
+### Active Scrapers
+
+| Scraper | Theater(s) | Strategy |
+|---|---|---|
+| `BeaconScraper` | The Beacon | Single calendar page, microdata parsing |
+| `SiffScraper` | SIFF Uptown, Downtown, Film Center | 21 daily calendar pages, multi-venue |
+| `NWFFScraper` | NW Film Forum | 4 weekly calendar pages, schema.org microdata |
+| `GrandIllusionScraper` | Grand Illusion Cinema | Homepage scrape, richest inline metadata |
+
+**Note**: `CentralCinemaScraper` exists but is NOT registered in `scraper_registry.ts` and `CentralCinema` is NOT in `ALL_THEATERS`.
+
+### Network Layer
+
+- `ScrapeClient` interface with `get(url)` (HTML) and `getImage(url)` (fetch + resize + WebP)
+- `getScrapeClient()` factory returns mock or real client based on `RUN_MODE`
+- Real client enforces 1-second rate limiting between requests
+- Images are resized to 600px wide WebP at quality 80, cached in `out/images/`
+
+### Local Dev Server (`index.ts`)
+
+A minimal `Bun.serve()` that serves static files from `out/` and `static/`. No scraping or API endpoints. Only for previewing the generated site locally.
+
+### Deployment
+
+- **GitHub Actions**: Daily cron at 3am PST, generates in prod mode, deploys to both GitHub Pages and Cloudflare Pages
+- **Local**: `deploy.sh` runs generate:prod + wrangler deploy (loads credentials from `~/.config/misogi/.env`)
+- Image caching between CI runs avoids re-downloading unchanged posters
+
+## Domain Models
+
+```typescript
+interface Movie {
+  title: string; url?: string; imageUrl?: string;
+  directors?: string[]; actors?: string[]; runtime?: number;
+  description?: string; releaseYear?: number;
+}
+
+interface Theater {
+  name: string; url: string; id: TheaterId;
+  about: string; address: string; addressLink?: string;
+}
+// TheaterId = "beacon" | "siff-uptown" | "siff-downtown" | "siff-center" | "nwff" | "grand-illusion" | "central-cinema"
+
+interface Showtime {
+  movie: Movie; theater: Theater; datetime: Date;
+}
+
+interface TheaterScraper {
+  getShowtimes(): Effect.Effect<Showtime[], Error>
+}
 ```
-
-### Type Checking
-```bash
-bun tsc --noEmit     # Run TypeScript compiler without emitting files
-```
-
-### Linting & Formatting
-This project doesn't have explicit linting/formatting commands configured yet. Agents should:
-- Follow the TypeScript strict mode configuration
-- Use the existing code style patterns as reference
-
-### Testing
-No test framework is currently configured. When adding tests:
-1. Choose an appropriate test framework (Jest, Vitest, Bun test, etc.)
-2. Add test scripts to package.json
-3. Follow the existing file structure patterns
 
 ## Code Style Guidelines
 
-### Import Organization
+### Imports
 - Use `import type` for type-only imports
-- Group imports in this order:
-  1. External library imports (e.g., `import * as cheerio from 'cheerio'`)
-  2. Internal type imports (e.g., `import type { Showtime } from "../models/showtime"`)
-  3. Internal value imports
-- Use relative paths with `../` for parent directory navigation
-- Use explicit file extensions only when required by TypeScript configuration
+- Order: external libraries -> internal type imports -> internal value imports
+- Use relative paths
 
-### TypeScript Configuration
-- **Strict mode enabled**: All TypeScript strict rules are enforced
-- **No implicit any**: All types must be explicitly declared
-- **No unchecked indexed access**: Array/object access must be type-safe
-- **ESNext target**: Use modern JavaScript features
-- **Module resolution**: Bundler mode with preserved module structure
+### TypeScript
+- Strict mode with `noUncheckedIndexedAccess` and `noImplicitOverride`
+- ESNext target, bundler module resolution
+- No build step (Bun runs TypeScript directly)
 
-### Interface & Type Definitions
-- Use `interface` for object shapes that might be extended
-- Use `type` for unions, intersections, and utility types
-- Export types from dedicated `models/` directories
-- Use optional properties (`?`) for non-required fields
-- Add JSDoc comments for complex interfaces
+### Naming
+- **Classes/Interfaces**: PascalCase (`BeaconScraper`, `TheaterScraper`)
+- **Methods/Variables**: camelCase (`getShowtimes`, `showtimes`)
+- **Files**: snake_case (`beacon_scraper.ts`, `theater_scraper.ts`)
 
-### Class & Function Patterns
-- Implement interfaces explicitly (`implements TheaterScraper`)
-- Use static properties for class-level constants
-- Use async/await for asynchronous operations
-- Return `Promise<T>` types for async methods
-- Use null returns for invalid/filtered data (consistent with `eventElementToShowtime`)
+### Patterns
+- Effect library for async operations with typed errors (`Effect.Effect<A, E>`)
+- Cheerio for HTML parsing (`.load()`, CSS selectors, `.text().trim()`, `.attr()`)
+- Null returns from `parseEvent()` to filter invalid data
+- `BaseScraper<TContext>` for shared pipeline; implement directly for non-standard scrapers
 
-### Error Handling
-- Use null returns for filtering invalid data (see `eventElementToShowtime`)
-- Implement filtering methods separately (see `filterShowtimes`)
-- When adding promises, use explicit Promise constructor for compatibility
-
-### File & Directory Structure
-- `scrapers/models/`: Interface definitions and types
-- `scrapers/theater_scrapers/`: Concrete scraper implementations
-- `scrapers/mocks/`: Test data and HTML mocks
-- Keep related functionality in the same directory
-- Use descriptive, snake_case file names
-
-### Naming Conventions
-- **Classes**: PascalCase (e.g., `BeaconScraper`)
-- **Interfaces**: PascalCase (e.g., `TheaterScraper`)
-- **Methods**: camelCase (e.g., `getShowtimes`, `eventElementToShowtime`)
-- **Variables**: camelCase (e.g., `calendar_mock`, `showtimes`)
-- **Constants**: SCREAMING_SNAKE_CASE for static properties
-- **Files**: snake_case (e.g., `beacon_scraper.ts`, `theater_scraper.ts`)
-
-### Code Organization
-- Place static properties at the top of classes
-- Group related methods together
-- Use private methods for internal logic (when needed)
-- Keep methods focused and single-purpose
-- Use array methods like `map`, `filter` for data transformations
-
-### HTML Parsing with Cheerio
-- Load HTML content using `cheerio.load()`
-- Use CSS selectors for element selection
-- Chain jQuery-style methods for element traversal
-- Use `.text().trim()` for clean text extraction
-- Use `.attr()` for attribute access with null checks
-- Map cheerio collections to typed arrays using `.map().get()`
-
-### Functional Programming (Effect library)
-- The project includes Effect as a dependency
-- When adding new functionality, consider using Effect for error handling and composition
-- Follow existing patterns until Effect is more deeply integrated
+### Testing
+- Uses `bun:test` framework
+- Existing tests in `scrapers/network/scrape-client.test.ts`
+- Mock `global.fetch` for HTTP client tests
 
 ## Development Workflow
 
-1. **Adding new theaters**: 
-   - Create new scraper class in `scrapers/theater_scrapers/`
-   - Implement `TheaterScraper` interface
-   - Add mock HTML data to `scrapers/mocks/`
+### Adding a New Theater
+1. Define a `Theater` constant in `scrapers/theaters/theaters.ts`
+2. Add the theater ID to the `TheaterId` type in `scrapers/models/theater.ts`
+3. Create a scraper class in `scrapers/theater_scrapers/` (extend `BaseScraper` or implement `TheaterScraper` directly)
+4. Register it in `generator/scraper_registry.ts`
+5. Add it to `ALL_THEATERS` in `scrapers/theaters/theaters.ts` (needed for UI filter buttons and about section)
+6. Save mock HTML to `scrapers/mocks/html/` (run `bun run generate:update-mocks` or save manually)
 
-2. **Modifying models**:
-   - Update interfaces in `scrapers/models/`
-   - Ensure backward compatibility when possible
-   - Update all implementations
+### Modifying Models
+- Update interfaces in `scrapers/models/`
+- Update all scraper implementations and `generator/html_generators.ts` as needed
 
-3. **Running the server**:
-   - The main file includes a Bun HTTP server
-   - Server runs on default port with API routes
-   - Use for testing scraper endpoints
-
-## Important Notes
-
-- This is a private project (`"private": true`)
-- Uses ES modules (`"type": "module"`)
-- Bun runtime is required (not Node.js)
-- No build step - TypeScript is handled by Bun directly
-- The project includes mock data for development/testing
+### Updating Mock Data
+Run `bun run generate:update-mocks` to fetch live HTML from all theater sites and save to `scrapers/mocks/html/`. This keeps mock mode in sync with real site structures.
