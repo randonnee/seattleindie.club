@@ -177,13 +177,12 @@ async function generateSite(showtimes: Showtime[]): Promise<string[]> {
         ogTitle: `${theater.name} Showtimes`,
         jsonLd: buildTheaterPageJsonLd(theater, theaterUpcoming)
       },
-      activeNav: null,
+      activeNav: "theaters",
       bodyContent: `
         <section class="theater-page" aria-label="${theater.name}">
           <div class="theater-page-header">
             <h2 class="theater-page-name"><a href="${theater.url}" target="_blank" rel="noopener noreferrer">${theater.name}</a></h2>
             <div class="theater-page-address">${addressHtml}</div>
-            <blockquote class="theater-about-description">"${theater.about}"</blockquote>
           </div>
 
           ${hasNowPlaying ? `

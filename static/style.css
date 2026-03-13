@@ -507,14 +507,16 @@ main {
 /* Theater Page */
 .theater-page-header {
   text-align: center;
-  margin-bottom: 2rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
 }
 
 .theater-page-name {
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--primary-color);
-  margin-bottom: 0.25rem;
+  white-space: nowrap;
 }
 
 .theater-page-name a {
@@ -529,7 +531,7 @@ main {
 .theater-page-address {
   font-size: var(--movie-times-font-size);
   color: var(--text-light);
-  margin-bottom: 0.5rem;
+  text-align: right;
 }
 
 .theater-page-address a {
@@ -679,6 +681,13 @@ main {
     border-top: 2px solid var(--border);
     padding-left: 0;
     padding-top: 0.75rem;
+  }
+
+  .theater-page-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding-bottom: 1rem;
   }
 }
 
