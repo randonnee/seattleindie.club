@@ -14,7 +14,7 @@ export interface PageMeta {
 
 export interface PageOptions {
   meta: PageMeta
-  activeNav: "now-playing" | "calendar" | "about" | null
+  activeNav: "now-playing" | "calendar" | "theaters" | null
   bodyContent: string
   cssHash: string
   jsHash: string
@@ -83,16 +83,18 @@ export function buildPage(options: PageOptions): string {
 </head>
 
 <body>
-  <div class="container">
-    <header>
+  <header>
+    <div class="header-inner">
       <h1><a href="/">SeattleIndie.club</a></h1>
       <nav class="view-modes">
         ${navLink("/", "now-playing", "Now playing")}
         ${navLink("/calendar/", "calendar", "Calendar")}
-        ${navLink("/about/", "about", "About")}
+        ${navLink("/theaters/", "theaters", "Theaters")}
       </nav>
-    </header>
+    </div>
+  </header>
 
+  <div class="container">
     <main>
       ${bodyContent}
     </main>

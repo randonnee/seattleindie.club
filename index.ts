@@ -6,8 +6,8 @@ const server = Bun.serve({
     // Multi-page routes
     "/calendar/": Bun.file("./out/calendar/index.html"),
     "/calendar": Bun.file("./out/calendar/index.html"),
-    "/about/": Bun.file("./out/about/index.html"),
-    "/about": Bun.file("./out/about/index.html"),
+    "/theaters/": Bun.file("./out/theaters/index.html"),
+    "/theaters": Bun.file("./out/theaters/index.html"),
 
     // Theater pages
     "/theaters/:id/": (req) => {

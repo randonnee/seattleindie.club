@@ -35,6 +35,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Update day visibility after filtering
       updateDayVisibility();
+
+      // Scroll day-grid back to top
+      const dayGrid = document.getElementById('day-grid');
+      if (dayGrid) dayGrid.scrollTop = 0;
     });
   });
 

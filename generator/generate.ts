@@ -8,16 +8,15 @@ import {
   groupShowtimesByDate,
   groupShowtimesByMovieAndTheater
 } from "./showtime_utils"
+import { generateTheaterFiltersHtml, generateCalendarHtml } from "./calendar_html"
+import { generateMovieGridHtml } from "./movie_grid_html"
+import { generateTheatersAboutHtml } from "./theaters_html"
 import {
-  generateTheaterFiltersHtml,
-  generateCalendarHtml,
-  generateMovieGridHtml,
-  generateTheatersAboutHtml,
   buildHomepageJsonLd,
   buildCalendarPageJsonLd,
-  buildAboutPageJsonLd,
+  buildTheatersPageJsonLd,
   buildTheaterPageJsonLd
-} from "./html_generators"
+} from "./json_ld"
 import { buildPage } from "./page_template"
 import { cleanupUnusedImages } from "../scrapers/network/scrape-client"
 import { MOCK_HTML_DIR, MOCK_IMAGES_DIR } from "../scrapers/mocks/mock-utils"
@@ -106,13 +105,11 @@ async function generateSite(showtimes: Showtime[]): Promise<string[]> {
     },
     activeNav: "calendar",
     bodyContent: `
-      <section aria-label="Showtime Calendar">
+      <section class="calendar-section" aria-label="Showtime Calendar">
         <h2 class="sr-only">Showtime Calendar</h2>
-        <div class="filter-section">
-          <div class="theater-filters">
+        <div class="theater-filters">
             ${theaterFiltersHtml}
           </div>
-        </div>
         <div class="day-grid" id="day-grid">
           ${calendarHtml}
         </div>
@@ -133,10 +130,10 @@ async function generateSite(showtimes: Showtime[]): Promise<string[]> {
     meta: {
       title: "About Seattle's Independent Theaters - SeattleIndie.club",
       description: "Learn about Seattle's independent movie theaters including The Beacon, SIFF Cinema, NW Film Forum, The Grand Illusion, and more.",
-      canonicalPath: "/about/",
-      jsonLd: buildAboutPageJsonLd()
+      canonicalPath: "/theaters/",
+      jsonLd: buildTheatersPageJsonLd()
     },
-    activeNav: "about",
+    activeNav: "theaters",
     bodyContent: `
       <section aria-label="About the Theaters">
         <h2 class="sr-only">About the Theaters</h2>
@@ -150,9 +147,9 @@ async function generateSite(showtimes: Showtime[]): Promise<string[]> {
     cssHash,
     jsHash
   })
-  await writePage(join(OUTPUT_DIR, "about/index.html"), aboutPageHtml)
-  pagePaths.push("/about/")
-  console.log("Generated: /about/")
+  await writePage(join(OUTPUT_DIR, "theaters/index.html"), aboutPageHtml)
+  pagePaths.push("/theaters/")
+  console.log("Generated: /theaters/")
 
   // --- Per-Theater Pages ---
   for (const theater of ALL_THEATERS) {
